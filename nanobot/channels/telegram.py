@@ -130,6 +130,7 @@ class TelegramChannel(BaseChannel):
         self._typing_tasks: dict[str, asyncio.Task] = {}  # chat_id -> typing loop task
         self._media_group_buffers: dict[str, dict] = {}
         self._media_group_tasks: dict[str, asyncio.Task] = {}
+        self._thread_roots: dict[int, int] = {}  # message_id -> root_message_id for thread sessions
 
     async def start(self) -> None:
         """Start the Telegram bot with long polling."""
@@ -234,13 +235,15 @@ class TelegramChannel(BaseChannel):
             return
 
         reply_params = None
-        if self.config.reply_to_message:
+        if self.config.reply_to_message or msg.metadata.get("in_thread"):
             reply_to_message_id = msg.metadata.get("message_id")
             if reply_to_message_id:
                 reply_params = ReplyParameters(
                     message_id=reply_to_message_id,
                     allow_sending_without_reply=True
                 )
+        thread_root: int | None = msg.metadata.get("thread_root")
+        _thread_tracked = False  # track only the first sent message per response
 
         # Send media files
         for media_path in (msg.media or []):
@@ -270,9 +273,10 @@ class TelegramChannel(BaseChannel):
         # Send text content
         if msg.content and msg.content != "[empty message]":
             for chunk in _split_message(msg.content):
+                sent = None
                 try:
                     html = _markdown_to_telegram_html(chunk)
-                    await self._app.bot.send_message(
+                    sent = await self._app.bot.send_message(
                         chat_id=chat_id,
                         text=html,
                         parse_mode="HTML",
@@ -281,13 +285,16 @@ class TelegramChannel(BaseChannel):
                 except Exception as e:
                     logger.warning("HTML parse failed, falling back to plain text: {}", e)
                     try:
-                        await self._app.bot.send_message(
+                        sent = await self._app.bot.send_message(
                             chat_id=chat_id,
                             text=chunk,
                             reply_parameters=reply_params
                         )
                     except Exception as e2:
                         logger.error("Error sending Telegram message: {}", e2)
+                if thread_root and not _thread_tracked and sent is not None:
+                    self._thread_roots[sent.message_id] = thread_root
+                    _thread_tracked = True
 
     async def _on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
@@ -430,8 +437,27 @@ class TelegramChannel(BaseChannel):
                 self._media_group_tasks[key] = asyncio.create_task(self._flush_media_group(key))
             return
 
+        # Resolve thread session from reply chain
+        session_key = None
+        if message.reply_to_message:
+            reply_to_id = message.reply_to_message.message_id
+            root_id = self._thread_roots.get(reply_to_id, reply_to_id)
+            self._thread_roots[message.message_id] = root_id
+            session_key = f"thread:{root_id}"
+
         # Start typing indicator before processing
         self._start_typing(str_chat_id)
+
+        metadata: dict = {
+            "message_id": message.message_id,
+            "user_id": user.id,
+            "username": user.username,
+            "first_name": user.first_name,
+            "is_group": message.chat.type != "private",
+        }
+        if session_key:
+            metadata["in_thread"] = True
+            metadata["thread_root"] = root_id
 
         # Forward to the message bus
         await self._handle_message(
@@ -439,13 +465,8 @@ class TelegramChannel(BaseChannel):
             chat_id=str_chat_id,
             content=content,
             media=media_paths,
-            metadata={
-                "message_id": message.message_id,
-                "user_id": user.id,
-                "username": user.username,
-                "first_name": user.first_name,
-                "is_group": message.chat.type != "private"
-            }
+            metadata=metadata,
+            session_key=session_key,
         )
 
     async def _flush_media_group(self, key: str) -> None:
