@@ -264,6 +264,7 @@ class AgentDefaults(Base):
     max_tool_iterations: int = 40
     memory_window: int = 100
     reasoning_effort: str | None = None  # low / medium / high — enables LLM thinking mode
+    web_search_options: dict | None = None  # e.g. {"search_context_size": "medium"}
 
 
 class AgentsConfig(Base):

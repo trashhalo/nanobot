@@ -186,6 +186,7 @@ class LiteLLMProvider(LLMProvider):
         max_tokens: int = 4096,
         temperature: float = 0.7,
         reasoning_effort: str | None = None,
+        web_search_options: dict | None = None,
     ) -> LLMResponse:
         """
         Send a chat completion request via LiteLLM.
@@ -201,6 +202,12 @@ class LiteLLMProvider(LLMProvider):
             LLMResponse with content and/or tool calls.
         """
         original_model = model or self.default_model
+
+        # Strip :online suffix (OpenRouter web search plugin shorthand)
+        online = ":online" in original_model
+        if online:
+            original_model = original_model.replace(":online", "")
+
         model = self._resolve_model(original_model)
         extra_msg_keys = self._extra_msg_keys(original_model, model)
 
@@ -237,6 +244,12 @@ class LiteLLMProvider(LLMProvider):
             kwargs["reasoning_effort"] = reasoning_effort
             kwargs["drop_params"] = True
         
+        if online:
+            kwargs["extra_body"] = {"plugins": [{"id": "web"}]}
+
+        if web_search_options is not None:
+            kwargs["web_search_options"] = web_search_options
+
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"

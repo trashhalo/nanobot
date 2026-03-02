@@ -30,6 +30,7 @@ class SubagentManager:
         temperature: float = 0.7,
         max_tokens: int = 4096,
         reasoning_effort: str | None = None,
+        web_search_options: dict | None = None,
         brave_api_key: str | None = None,
         web_proxy: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
@@ -43,6 +44,7 @@ class SubagentManager:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.reasoning_effort = reasoning_effort
+        self.web_search_options = web_search_options
         self.brave_api_key = brave_api_key
         self.web_proxy = web_proxy
         self.exec_config = exec_config or ExecToolConfig()
@@ -130,6 +132,7 @@ class SubagentManager:
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                     reasoning_effort=self.reasoning_effort,
+                    web_search_options=self.web_search_options,
                 )
 
                 if response.has_tool_calls:
