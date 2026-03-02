@@ -321,8 +321,11 @@ class TelegramChannel(BaseChannel):
                         )
                     except Exception as e2:
                         logger.error("Error sending Telegram message: {}", e2)
-                if thread_root and not _thread_tracked and sent is not None:
-                    self._thread_roots[sent.message_id] = thread_root
+                if not _thread_tracked and sent is not None:
+                    # Track every bot message so users can reply to start/continue threads.
+                    # If already in a thread use that root; otherwise the bot message is its own root.
+                    effective_root = thread_root if thread_root else sent.message_id
+                    self._thread_roots[sent.message_id] = effective_root
                     self._save_thread_roots()
                     _thread_tracked = True
 
