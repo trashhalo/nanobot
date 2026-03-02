@@ -265,6 +265,7 @@ class AgentDefaults(Base):
     memory_window: int = 100
     reasoning_effort: str | None = None  # low / medium / high — enables LLM thinking mode
     web_search_options: dict | None = None  # e.g. {"search_context_size": "medium"}
+    search_model: str | None = None  # model used by subagents when search=True, e.g. "openai/gpt-oss-120b:free:online"
 
 
 class AgentsConfig(Base):

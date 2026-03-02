@@ -59,6 +59,7 @@ class AgentLoop:
         memory_window: int = 100,
         reasoning_effort: str | None = None,
         web_search_options: dict | None = None,
+        search_model: str | None = None,
         brave_api_key: str | None = None,
         web_proxy: str | None = None,
         exec_config: ExecToolConfig | None = None,
@@ -80,6 +81,7 @@ class AgentLoop:
         self.memory_window = memory_window
         self.reasoning_effort = reasoning_effort
         self.web_search_options = web_search_options
+        self.search_model = search_model
         self.brave_api_key = brave_api_key
         self.web_proxy = web_proxy
         self.exec_config = exec_config or ExecToolConfig()
@@ -98,6 +100,7 @@ class AgentLoop:
             max_tokens=self.max_tokens,
             reasoning_effort=reasoning_effort,
             web_search_options=web_search_options,
+            search_model=search_model,
             brave_api_key=brave_api_key,
             web_proxy=web_proxy,
             exec_config=self.exec_config,
