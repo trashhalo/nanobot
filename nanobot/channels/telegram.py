@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
+from pathlib import Path
 
 from loguru import logger
 from telegram import BotCommand, ReplyParameters, Update
@@ -121,6 +123,7 @@ class TelegramChannel(BaseChannel):
         config: TelegramConfig,
         bus: MessageBus,
         groq_api_key: str = "",
+        workspace: Path | None = None,
     ):
         super().__init__(config, bus)
         self.config: TelegramConfig = config
@@ -131,6 +134,8 @@ class TelegramChannel(BaseChannel):
         self._media_group_buffers: dict[str, dict] = {}
         self._media_group_tasks: dict[str, asyncio.Task] = {}
         self._thread_roots: dict[int, int] = {}  # message_id -> root_message_id for thread sessions
+        self._thread_roots_path: Path | None = (workspace / "telegram_thread_roots.json") if workspace else None
+        self._load_thread_roots()
 
     async def start(self) -> None:
         """Start the Telegram bot with long polling."""
@@ -207,6 +212,30 @@ class TelegramChannel(BaseChannel):
             await self._app.stop()
             await self._app.shutdown()
             self._app = None
+
+    def _load_thread_roots(self) -> None:
+        """Load persisted thread roots from disk."""
+        if not self._thread_roots_path or not self._thread_roots_path.exists():
+            return
+        try:
+            raw = json.loads(self._thread_roots_path.read_text(encoding="utf-8"))
+            self._thread_roots = {int(k): int(v) for k, v in raw.items()}
+            logger.debug("Loaded {} thread roots from disk", len(self._thread_roots))
+        except Exception:
+            logger.warning("Failed to load thread roots from {}", self._thread_roots_path)
+
+    def _save_thread_roots(self) -> None:
+        """Persist thread roots to disk."""
+        if not self._thread_roots_path:
+            return
+        try:
+            self._thread_roots_path.parent.mkdir(parents=True, exist_ok=True)
+            self._thread_roots_path.write_text(
+                json.dumps({str(k): v for k, v in self._thread_roots.items()}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception:
+            logger.warning("Failed to save thread roots to {}", self._thread_roots_path)
 
     @staticmethod
     def _get_media_type(path: str) -> str:
@@ -294,6 +323,7 @@ class TelegramChannel(BaseChannel):
                         logger.error("Error sending Telegram message: {}", e2)
                 if thread_root and not _thread_tracked and sent is not None:
                     self._thread_roots[sent.message_id] = thread_root
+                    self._save_thread_roots()
                     _thread_tracked = True
 
     async def _on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -437,13 +467,18 @@ class TelegramChannel(BaseChannel):
                 self._media_group_tasks[key] = asyncio.create_task(self._flush_media_group(key))
             return
 
-        # Resolve thread session from reply chain
+        # Resolve thread session from reply chain.
+        # Only create a thread session if we know the root — prevents orphaned empty sessions
+        # after restarts when _thread_roots has been cleared.
         session_key = None
+        root_id: int | None = None
         if message.reply_to_message:
             reply_to_id = message.reply_to_message.message_id
-            root_id = self._thread_roots.get(reply_to_id, reply_to_id)
-            self._thread_roots[message.message_id] = root_id
-            session_key = f"thread:{root_id}"
+            if reply_to_id in self._thread_roots:
+                root_id = self._thread_roots[reply_to_id]
+                self._thread_roots[message.message_id] = root_id
+                self._save_thread_roots()
+                session_key = f"thread:{root_id}"
 
         # Start typing indicator before processing
         self._start_typing(str_chat_id)
