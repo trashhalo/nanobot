@@ -32,6 +32,7 @@ class SubagentManager:
         reasoning_effort: str | None = None,
         web_search_options: dict | None = None,
         search_model: str | None = None,
+        model_fallbacks: list[str] | None = None,
         brave_api_key: str | None = None,
         web_proxy: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
@@ -47,6 +48,7 @@ class SubagentManager:
         self.reasoning_effort = reasoning_effort
         self.web_search_options = web_search_options
         self.search_model = search_model
+        self.model_fallbacks = model_fallbacks or []
         self.brave_api_key = brave_api_key
         self.web_proxy = web_proxy
         self.exec_config = exec_config or ExecToolConfig()
@@ -138,6 +140,7 @@ class SubagentManager:
                     max_tokens=self.max_tokens,
                     reasoning_effort=self.reasoning_effort,
                     web_search_options=self.web_search_options,
+                    fallbacks=self.model_fallbacks or None,
                 )
 
                 if response.has_tool_calls:

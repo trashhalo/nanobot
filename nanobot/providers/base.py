@@ -97,6 +97,7 @@ class LLMProvider(ABC):
         temperature: float = 0.7,
         reasoning_effort: str | None = None,
         web_search_options: dict | None = None,
+        fallbacks: list[str] | None = None,
     ) -> LLMResponse:
         """
         Send a chat completion request.

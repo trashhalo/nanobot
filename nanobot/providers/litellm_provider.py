@@ -187,6 +187,7 @@ class LiteLLMProvider(LLMProvider):
         temperature: float = 0.7,
         reasoning_effort: str | None = None,
         web_search_options: dict | None = None,
+        fallbacks: list[str] | None = None,
     ) -> LLMResponse:
         """
         Send a chat completion request via LiteLLM.
@@ -258,7 +259,22 @@ class LiteLLMProvider(LLMProvider):
             response = await acompletion(**kwargs)
             return self._parse_response(response)
         except Exception as e:
-            # Return error as content for graceful handling
+            if fallbacks:
+                for fallback_model in fallbacks:
+                    logger.warning("LLM call failed ({}), trying fallback: {}", type(e).__name__, fallback_model)
+                    try:
+                        fallback_online = ":online" in fallback_model
+                        resolved = self._resolve_model(fallback_model.replace(":online", "") if fallback_online else fallback_model)
+                        fallback_kwargs = dict(kwargs)
+                        fallback_kwargs["model"] = resolved
+                        if fallback_online:
+                            fallback_kwargs["extra_body"] = {"plugins": [{"id": "web"}]}
+                        elif "extra_body" in fallback_kwargs and not online:
+                            del fallback_kwargs["extra_body"]
+                        response = await acompletion(**fallback_kwargs)
+                        return self._parse_response(response)
+                    except Exception as fe:
+                        logger.warning("Fallback {} also failed: {}", fallback_model, fe)
             return LLMResponse(
                 content=f"Error calling LLM: {str(e)}",
                 finish_reason="error",

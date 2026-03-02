@@ -266,6 +266,7 @@ class AgentDefaults(Base):
     reasoning_effort: str | None = None  # low / medium / high — enables LLM thinking mode
     web_search_options: dict | None = None  # e.g. {"search_context_size": "medium"}
     search_model: str | None = None  # model used by subagents when search=True, e.g. "openai/gpt-oss-120b:free:online"
+    model_fallbacks: list[str] = Field(default_factory=list)  # fallback models tried in order on LLM error
 
 
 class AgentsConfig(Base):
