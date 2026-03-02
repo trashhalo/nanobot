@@ -226,7 +226,8 @@ class IpcConfig(Base):
     """IPC channel: localhost TCP (always-on, no auth) + optional external HTTP webhook (auth enforced)."""
 
     enabled: bool = False
-    port: int = 18790              # localhost-only listener, no auth required
+    host: str = "127.0.0.1"        # local listener bind address
+    port: int = 18790              # local listener port, no auth required
     debounce_seconds: float = 5.0  # batch window per topic
     max_batch_size: int = 100      # max events per flush; overflow held for immediate next batch
     max_topic_buffer: int = 1000   # high-water mark: total buffered events before returning 429
@@ -333,7 +334,7 @@ class WebToolsConfig(Base):
 class ExecToolConfig(Base):
     """Shell exec tool configuration."""
 
-    timeout: int = 60
+    timeout: int = 10
     path_append: str = ""
 
 

@@ -78,10 +78,10 @@ class IpcChannel(BaseChannel):
         # Localhost TCP — always on, no auth
         self._local_server = await asyncio.start_server(
             lambda r, w: self._handle_http(r, w, check_auth=False),
-            host="127.0.0.1",
+            host=self.config.host,
             port=self.config.port,
         )
-        logger.info("IPC local HTTP listening on 127.0.0.1:{}{}", self.config.port, self.config.http.path)
+        logger.info("IPC local HTTP listening on {}:{}{}", self.config.host, self.config.port, self.config.http.path)
         tasks.append(asyncio.create_task(self._local_server.serve_forever()))
 
         # External TCP HTTP — optional, auth enforced
