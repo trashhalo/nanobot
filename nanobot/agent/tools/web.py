@@ -4,13 +4,16 @@ import html
 import json
 import os
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 import httpx
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool
+
+if TYPE_CHECKING:
+    from nanobot.providers.base import LLMProvider
 
 # Shared constants
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36"
@@ -45,7 +48,7 @@ def _validate_url(url: str) -> tuple[bool, str]:
 
 
 class WebSearchTool(Tool):
-    """Search the web using Brave Search API."""
+    """Search the web using a search model or Brave Search API."""
 
     name = "web_search"
     description = "Search the web. Returns titles, URLs, and snippets."
@@ -58,10 +61,19 @@ class WebSearchTool(Tool):
         "required": ["query"]
     }
 
-    def __init__(self, api_key: str | None = None, max_results: int = 5, proxy: str | None = None):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        max_results: int = 5,
+        proxy: str | None = None,
+        provider: "LLMProvider | None" = None,
+        search_model: str | None = None,
+    ):
         self._init_api_key = api_key
         self.max_results = max_results
         self.proxy = proxy
+        self._provider = provider
+        self._search_model = search_model
 
     @property
     def api_key(self) -> str:
@@ -69,6 +81,26 @@ class WebSearchTool(Tool):
         return self._init_api_key or os.environ.get("BRAVE_API_KEY", "")
 
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
+        if self._search_model and self._provider:
+            return await self._search_via_model(query, count)
+        return await self._search_via_brave(query, count)
+
+    async def _search_via_model(self, query: str, count: int | None) -> str:
+        n = min(max(count or self.max_results, 1), 10)
+        logger.debug("WebSearch: using search model {}", self._search_model)
+        try:
+            response = await self._provider.chat(  # type: ignore[union-attr]
+                messages=[{"role": "user", "content": f"Search the web for: {query}\n\nReturn the top {n} results with titles, URLs, and brief descriptions."}],
+                model=self._search_model,
+                max_tokens=1024,
+                temperature=0.1,
+            )
+            return response.content or f"No results for: {query}"
+        except Exception as e:
+            logger.error("WebSearch model error: {}", e)
+            return f"Error: {e}"
+
+    async def _search_via_brave(self, query: str, count: int | None) -> str:
         if not self.api_key:
             return (
                 "Error: Brave Search API key not configured. Set it in "
