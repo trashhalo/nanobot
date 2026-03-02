@@ -324,8 +324,11 @@ def gateway(
         return response
     cron.on_job = on_cron_job
 
+    async def on_ipc_batch(topic: str, events: list[dict], skill_hint: str | None) -> None:
+        await agent.process_event_batch(topic, events, skill_hint=skill_hint)
+
     # Create channel manager
-    channels = ChannelManager(config, bus)
+    channels = ChannelManager(config, bus, on_ipc_batch=on_ipc_batch)
 
     def _pick_heartbeat_target() -> tuple[str, str]:
         """Pick a routable channel/chat target for heartbeat-triggered messages."""

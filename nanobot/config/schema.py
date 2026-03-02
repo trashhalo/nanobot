@@ -200,6 +200,40 @@ class MatrixConfig(Base):
     group_allow_from: list[str] = Field(default_factory=list)
     allow_room_mentions: bool = False
 
+class IpcRouteConfig(Base):
+    """A single topic-routing rule for the IPC channel."""
+
+    pattern: str  # fnmatch pattern, e.g. "sensor.*" or "alert.*"
+    handler: Literal["agent", "script"] = "agent"
+    # handler=agent fields
+    skill: str | None = None    # optional skill hint injected into the message
+    # handler=script fields
+    script: str | None = None   # shell command or path; receives batch as NDJSON on stdin
+    script_timeout: int = 30    # seconds before the script is killed
+
+
+class IpcHttpConfig(Base):
+    """Optional HTTP webhook endpoint for the IPC channel."""
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 18791
+    path: str = "/events"
+    auth_token: str = ""  # if set, requests must include Authorization: Bearer <token> or X-Auth-Token: <token>
+
+
+class IpcConfig(Base):
+    """IPC channel: localhost TCP (always-on, no auth) + optional external HTTP webhook (auth enforced)."""
+
+    enabled: bool = False
+    port: int = 18790              # localhost-only listener, no auth required
+    debounce_seconds: float = 5.0  # batch window per topic
+    max_batch_size: int = 100      # max events per flush; overflow held for immediate next batch
+    max_topic_buffer: int = 1000   # high-water mark: total buffered events before returning 429
+    routes: list[IpcRouteConfig] = Field(default_factory=list)
+    http: IpcHttpConfig = Field(default_factory=IpcHttpConfig)
+
+
 class ChannelsConfig(Base):
     """Configuration for chat channels."""
 
@@ -215,6 +249,7 @@ class ChannelsConfig(Base):
     slack: SlackConfig = Field(default_factory=SlackConfig)
     qq: QQConfig = Field(default_factory=QQConfig)
     matrix: MatrixConfig = Field(default_factory=MatrixConfig)
+    ipc: IpcConfig = Field(default_factory=IpcConfig)
 
 
 class AgentDefaults(Base):

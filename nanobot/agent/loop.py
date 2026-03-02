@@ -26,6 +26,7 @@ from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
 from nanobot.session.manager import Session, SessionManager
+from nanobot.utils.helpers import ensure_dir, safe_filename
 
 if TYPE_CHECKING:
     from nanobot.config.schema import ChannelsConfig, ExecToolConfig
@@ -181,6 +182,7 @@ class AgentLoop:
         self,
         initial_messages: list[dict],
         on_progress: Callable[..., Awaitable[None]] | None = None,
+        extra_tools: dict[str, tuple[dict, Callable[..., Awaitable[str]]]] | None = None,
     ) -> tuple[str | None, list[str], list[dict]]:
         """Run the agent iteration loop. Returns (final_content, tools_used, messages)."""
         messages = initial_messages
@@ -188,12 +190,16 @@ class AgentLoop:
         final_content = None
         tools_used: list[str] = []
 
+        tool_defs = self.tools.get_definitions()
+        if extra_tools:
+            tool_defs = tool_defs + [defn for defn, _ in extra_tools.values()]
+
         while iteration < self.max_iterations:
             iteration += 1
 
             response = await self.provider.chat(
                 messages=messages,
-                tools=self.tools.get_definitions(),
+                tools=tool_defs,
                 model=self.model,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
@@ -228,7 +234,11 @@ class AgentLoop:
                     tools_used.append(tool_call.name)
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                     logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
-                    result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                    if extra_tools and tool_call.name in extra_tools:
+                        _, handler = extra_tools[tool_call.name]
+                        result = await handler(tool_call.arguments)
+                    else:
+                        result = await self.tools.execute(tool_call.name, tool_call.arguments)
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
@@ -496,3 +506,77 @@ class AgentLoop:
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
         response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
         return response.content if response else ""
+
+    async def process_event_batch(
+        self,
+        topic: str,
+        events: list[dict],
+        skill_hint: str | None = None,
+    ) -> None:
+        """Process an event batch with no session history and a per-topic scratchpad."""
+        await self._connect_mcp()
+
+        scratchpad_dir = ensure_dir(self.workspace / "ipc")
+        scratchpad_path = scratchpad_dir / f"{safe_filename(topic)}.json"
+
+        scratchpad: dict = {}
+        if scratchpad_path.exists():
+            try:
+                scratchpad = json.loads(scratchpad_path.read_text())
+            except Exception:
+                pass
+
+        count = len(events)
+        lines = [f"Topic: {topic} ({count} event{'s' if count != 1 else ''})"]
+        for e in events:
+            ts = e.get("ts", "")[:19].replace("T", " ")
+            data = json.dumps(e.get("data"), ensure_ascii=False) if e.get("data") is not None else "(no data)"
+            lines.append(f"{ts} {data}")
+        if skill_hint:
+            lines.append(f"\n[Skill hint: use the '{skill_hint}' skill]")
+        content = "\n".join(lines)
+
+        if scratchpad:
+            content += f"\n\n[Scratchpad — your persistent notes for topic '{topic}':\n{json.dumps(scratchpad, indent=2)}\n]"
+
+        saved: list[dict] = []
+
+        save_scratchpad_def = {
+            "type": "function",
+            "function": {
+                "name": "save_scratchpad",
+                "description": "Persist notes for this topic across future event batches.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "notes": {
+                            "type": "string",
+                            "description": "Free-form notes to save (replaces current scratchpad).",
+                        }
+                    },
+                    "required": ["notes"],
+                },
+            },
+        }
+
+        async def _handle_save_scratchpad(args: dict) -> str:
+            saved.append({"notes": args.get("notes", "")})
+            return "Scratchpad saved."
+
+        self._set_tool_context("ipc", topic, None)
+        messages = self.context.build_messages(
+            history=[],
+            current_message=content,
+            channel="ipc",
+            chat_id=topic,
+        )
+
+        logger.info("IPC: processing {} event(s) on topic '{}'", count, topic)
+        await self._run_agent_loop(
+            messages,
+            extra_tools={"save_scratchpad": (save_scratchpad_def, _handle_save_scratchpad)},
+        )
+
+        if saved:
+            scratchpad_path.write_text(json.dumps(saved[-1], indent=2, ensure_ascii=False))
+            logger.debug("IPC: scratchpad updated for topic '{}'", topic)

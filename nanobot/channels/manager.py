@@ -23,11 +23,12 @@ class ChannelManager:
     - Route outbound messages
     """
 
-    def __init__(self, config: Config, bus: MessageBus):
+    def __init__(self, config: Config, bus: MessageBus, on_ipc_batch: Any = None):
         self.config = config
         self.bus = bus
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
+        self._on_ipc_batch = on_ipc_batch
 
         self._init_channels()
 
@@ -148,6 +149,16 @@ class ChannelManager:
                 logger.info("Matrix channel enabled")
             except ImportError as e:
                 logger.warning("Matrix channel not available: {}", e)
+
+        # IPC channel
+        if self.config.channels.ipc.enabled:
+            from nanobot.channels.ipc import IpcChannel
+            self.channels["ipc"] = IpcChannel(
+                self.config.channels.ipc,
+                self.bus,
+                on_batch=self._on_ipc_batch,
+            )
+            logger.info("IPC channel enabled")
 
         self._validate_allow_from()
 
