@@ -190,6 +190,22 @@ class SkillsLoader:
         meta = self.get_skill_metadata(name) or {}
         return self._parse_nanobot_metadata(meta.get("metadata", ""))
 
+    def get_bootstrap_injections(self) -> list[str]:
+        """Return content from hooks/nanobot/bootstrap.md for all installed skills."""
+        results = []
+        for skills_dir in (self.workspace_skills, self.builtin_skills):
+            if not skills_dir or not skills_dir.exists():
+                continue
+            for skill_dir in skills_dir.iterdir():
+                if not skill_dir.is_dir():
+                    continue
+                hook_file = skill_dir / "hooks" / "nanobot" / "bootstrap.md"
+                if hook_file.exists():
+                    content = hook_file.read_text(encoding="utf-8").strip()
+                    if content:
+                        results.append(content)
+        return results
+
     def get_always_skills(self) -> list[str]:
         """Get skills marked as always=true that meet requirements."""
         result = []

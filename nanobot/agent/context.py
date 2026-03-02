@@ -41,6 +41,10 @@ class ContextBuilder:
             if always_content:
                 parts.append(f"# Active Skills\n\n{always_content}")
 
+        bootstrap_hooks = self.skills.get_bootstrap_injections()
+        if bootstrap_hooks:
+            parts.append("\n\n".join(bootstrap_hooks))
+
         skills_summary = self.skills.build_skills_summary()
         if skills_summary:
             parts.append(f"""# Skills
