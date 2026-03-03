@@ -855,6 +855,7 @@ def cron_add(
     deliver: bool = typer.Option(False, "--deliver", "-d", help="Deliver response to channel"),
     to: str = typer.Option(None, "--to", help="Recipient for delivery"),
     channel: str = typer.Option(None, "--channel", help="Channel for delivery (e.g. 'telegram', 'whatsapp')"),
+    skill: list[str] = typer.Option(None, "--skill", "-s", help="Skill to load when job runs (repeatable)"),
 ):
     """Add a scheduled job."""
     from nanobot.config.loader import get_data_dir
@@ -889,6 +890,7 @@ def cron_add(
             deliver=deliver,
             to=to,
             channel=channel,
+            skills=skill or None,
         )
     except ValueError as e:
         console.print(f"[red]Error: {e}[/red]")
