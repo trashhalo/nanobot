@@ -206,7 +206,7 @@ class IpcRouteConfig(Base):
     pattern: str  # fnmatch pattern, e.g. "sensor.*" or "alert.*"
     handler: Literal["agent", "script"] = "agent"
     # handler=agent fields
-    skill: str | None = None    # optional skill hint injected into the message
+    skills: list[str] = Field(default_factory=list)  # skills preloaded into system prompt
     # handler=script fields
     script: str | None = None   # shell command or path; receives batch as NDJSON on stdin
     script_timeout: int = 30    # seconds before the script is killed

@@ -546,7 +546,7 @@ class AgentLoop:
         self,
         topic: str,
         events: list[dict],
-        skill_hint: str | None = None,
+        skill_names: list[str] | None = None,
     ) -> None:
         """Process an event batch with no session history and a per-topic scratchpad."""
         await self._connect_mcp()
@@ -567,8 +567,6 @@ class AgentLoop:
             ts = e.get("ts", "")[:19].replace("T", " ")
             data = json.dumps(e.get("data"), ensure_ascii=False) if e.get("data") is not None else "(no data)"
             lines.append(f"{ts} {data}")
-        if skill_hint:
-            lines.append(f"\n[Skill hint: use the '{skill_hint}' skill]")
         content = "\n".join(lines)
 
         if scratchpad:
@@ -604,6 +602,7 @@ class AgentLoop:
             current_message=content,
             channel="ipc",
             chat_id=topic,
+            skill_names=skill_names or [],
         )
 
         logger.info("IPC: processing {} event(s) on topic '{}'", count, topic)

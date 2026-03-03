@@ -291,9 +291,9 @@ class IpcChannel(BaseChannel):
         if not self._on_batch:
             logger.warning("IPC: no on_batch handler configured, dropping {} event(s) on '{}'", len(events), topic)
             return
-        skill_hint = route.skill if route else None
+        skill_names = route.skills if route else []
         logger.info("IPC: flushing {} event(s) on '{}'", len(events), topic)
-        await self._on_batch(topic, events, skill_hint)
+        await self._on_batch(topic, events, skill_names)
 
     async def _run_script(
         self, topic: str, events: list[dict], route: IpcRouteConfig

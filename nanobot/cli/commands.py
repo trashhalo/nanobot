@@ -329,8 +329,8 @@ def gateway(
         return response
     cron.on_job = on_cron_job
 
-    async def on_ipc_batch(topic: str, events: list[dict], skill_hint: str | None) -> None:
-        await agent.process_event_batch(topic, events, skill_hint=skill_hint)
+    async def on_ipc_batch(topic: str, events: list[dict], skill_names: list[str]) -> None:
+        await agent.process_event_batch(topic, events, skill_names=skill_names)
 
     # Create channel manager
     channels = ChannelManager(config, bus, on_ipc_batch=on_ipc_batch)
