@@ -36,10 +36,12 @@ class ContextBuilder:
             parts.append(f"# Memory\n\n{memory}")
 
         always_skills = self.skills.get_always_skills()
-        if always_skills:
-            always_content = self.skills.load_skills_for_context(always_skills)
-            if always_content:
-                parts.append(f"# Active Skills\n\n{always_content}")
+        extra_skills = [s for s in (skill_names or []) if s not in always_skills]
+        active_skills = always_skills + extra_skills
+        if active_skills:
+            active_content = self.skills.load_skills_for_context(active_skills)
+            if active_content:
+                parts.append(f"# Active Skills\n\n{active_content}")
 
         bootstrap_hooks = self.skills.get_bootstrap_injections()
         if bootstrap_hooks:
