@@ -56,6 +56,11 @@ class CronTool(Tool):
                     "description": "ISO datetime for one-time execution (e.g. '2026-02-12T10:30:00')",
                 },
                 "job_id": {"type": "string", "description": "Job ID (for remove)"},
+                "skills": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Skill names to load into context when this job runs (e.g. ['email-backlog'])",
+                },
             },
             "required": ["action"],
         }
@@ -69,10 +74,11 @@ class CronTool(Tool):
         tz: str | None = None,
         at: str | None = None,
         job_id: str | None = None,
+        skills: list[str] | None = None,
         **kwargs: Any,
     ) -> str:
         if action == "add":
-            return self._add_job(message, every_seconds, cron_expr, tz, at)
+            return self._add_job(message, every_seconds, cron_expr, tz, at, skills)
         elif action == "list":
             return self._list_jobs()
         elif action == "remove":
@@ -86,6 +92,7 @@ class CronTool(Tool):
         cron_expr: str | None,
         tz: str | None,
         at: str | None,
+        skills: list[str] | None = None,
     ) -> str:
         if not message:
             return "Error: message is required for add"
@@ -125,6 +132,7 @@ class CronTool(Tool):
             channel=self._channel,
             to=self._chat_id,
             delete_after_run=delete_after,
+            skills=skills,
         )
         return f"Created job '{job.name}' (id: {job.id})"
 

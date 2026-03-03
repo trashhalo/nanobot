@@ -27,6 +27,8 @@ class CronPayload:
     deliver: bool = False
     channel: str | None = None  # e.g. "whatsapp"
     to: str | None = None  # e.g. phone number
+    # Skills to load into context when this job runs
+    skills: list[str] = field(default_factory=list)
 
 
 @dataclass

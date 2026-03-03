@@ -311,6 +311,7 @@ def gateway(
             session_key=f"cron:{job.id}",
             channel=job.payload.channel or "cli",
             chat_id=job.payload.to or "direct",
+            skill_names=job.payload.skills or None,
         )
 
         message_tool = agent.tools.get("message")
