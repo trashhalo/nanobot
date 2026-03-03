@@ -271,13 +271,12 @@ class TelegramChannel(BaseChannel):
             return
 
         reply_params = None
-        if self.config.reply_to_message or msg.metadata.get("in_thread"):
-            reply_to_message_id = msg.metadata.get("message_id")
-            if reply_to_message_id:
-                reply_params = ReplyParameters(
-                    message_id=reply_to_message_id,
-                    allow_sending_without_reply=True
-                )
+        reply_to_message_id = msg.metadata.get("message_id")
+        if reply_to_message_id:
+            reply_params = ReplyParameters(
+                message_id=reply_to_message_id,
+                allow_sending_without_reply=True
+            )
         thread_root: int | None = msg.metadata.get("thread_root")
         _thread_tracked = False  # track only the first sent message per response
 
@@ -510,6 +509,9 @@ class TelegramChannel(BaseChannel):
         if session_key:
             metadata["in_thread"] = True
             metadata["thread_root"] = root_id
+        else:
+            # Plain message (no reply-to) — stateless, no accumulated history
+            metadata["stateless"] = True
 
         # Forward to the message bus
         await self._handle_message(

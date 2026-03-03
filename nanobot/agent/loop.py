@@ -325,7 +325,8 @@ class AgentLoop:
         """Process a message under the global lock."""
         async with self._processing_lock:
             try:
-                response = await self._process_message(msg)
+                stateless = bool((msg.metadata or {}).get("stateless", False))
+                response = await self._process_message(msg, stateless=stateless)
                 if response is not None:
                     await self.bus.publish_outbound(response)
                 elif msg.channel == "cli":
