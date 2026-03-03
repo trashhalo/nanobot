@@ -66,6 +66,7 @@ class LiteLLMProvider(LLMProvider):
             litellm.callbacks = [c.strip() for c in callbacks_env.split(",") if c.strip()]
 
         self._llm_logging = os.environ.get("LLM_LOGGING", "").lower() == "true"
+        self._llm_log_truncate = int(os.environ.get("LLM_LOG_TRUNCATE", "500"))
 
     def _setup_env(self, api_key: str, api_base: str | None, model: str) -> None:
         """Set environment variables based on detected provider."""
@@ -275,7 +276,10 @@ class LiteLLMProvider(LLMProvider):
                     content = msg.get("content") or ""
                     if isinstance(content, list):
                         content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
-                    logger.info("  [{}] {}", role, str(content)[:500])
+                    text = str(content)
+                    if self._llm_log_truncate >= 0:
+                        text = text[:self._llm_log_truncate]
+                    logger.info("  [{}] {}", role, text)
 
             t0 = time.monotonic()
             response = await acompletion(**kwargs)
@@ -297,7 +301,10 @@ class LiteLLMProvider(LLMProvider):
                     [tc.function.name for tc in tool_calls],
                 )
                 if content:
-                    logger.info("  [assistant] {}", str(content)[:500])
+                    text = str(content)
+                    if self._llm_log_truncate >= 0:
+                        text = text[:self._llm_log_truncate]
+                    logger.info("  [assistant] {}", text)
 
             return self._parse_response(response)
         except Exception as e:
