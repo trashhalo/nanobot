@@ -510,8 +510,11 @@ class TelegramChannel(BaseChannel):
             metadata["in_thread"] = True
             metadata["thread_root"] = root_id
         else:
-            # Plain message (no reply-to) — stateless, no accumulated history
+            # Plain message (no reply-to) — stateless, no accumulated history.
+            # Use a per-message session key so replies to the bot's response
+            # create an isolated thread rather than routing into the full DM history.
             metadata["stateless"] = True
+            session_key = f"telegram:{str_chat_id}:{message.message_id}"
 
         # Forward to the message bus
         await self._handle_message(
