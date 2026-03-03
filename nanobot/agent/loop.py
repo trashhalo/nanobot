@@ -471,8 +471,11 @@ class AgentLoop:
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))
 
+        async def _noop_progress(content: str, *, tool_hint: bool = False) -> None:
+            pass
+
         final_content, _, all_msgs = await self._run_agent_loop(
-            initial_messages, on_progress=on_progress or _bus_progress,
+            initial_messages, on_progress=on_progress or (_noop_progress if stateless else _bus_progress),
         )
 
         if final_content is None:
