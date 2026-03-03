@@ -59,6 +59,9 @@ class LiteLLMProvider(LLMProvider):
         litellm.suppress_debug_info = True
         # Drop unsupported parameters for providers (e.g., gpt-5 rejects some params)
         litellm.drop_params = True
+        # Register callbacks from LITELLM_CALLBACKS env var (comma-separated, e.g. "otel,langfuse")
+        if callbacks_env := os.environ.get("LITELLM_CALLBACKS"):
+            litellm.callbacks = [c.strip() for c in callbacks_env.split(",") if c.strip()]
 
     def _setup_env(self, api_key: str, api_base: str | None, model: str) -> None:
         """Set environment variables based on detected provider."""
