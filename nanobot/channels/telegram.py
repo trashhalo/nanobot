@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -16,6 +17,18 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import TelegramConfig
+
+
+_SESSION_EMOJIS = [
+    "🔥", "⚡", "🎉", "🏆", "🕊", "🦄", "🐳", "🎃", "👾", "👻",
+    "🤩", "😍", "😎", "🤓", "🫡", "💅", "🤡", "🤯", "💯", "🍓",
+]
+
+
+def _session_emoji(session_key: str) -> str:
+    """Deterministically map a session key to an emoji via MD5 hash."""
+    h = int(hashlib.md5(session_key.encode()).hexdigest(), 16)
+    return _SESSION_EMOJIS[h % len(_SESSION_EMOJIS)]
 
 
 def _markdown_to_telegram_html(text: str) -> str:
@@ -331,12 +344,16 @@ class TelegramChannel(BaseChannel):
                     # Track every bot message so users can reply to start/continue threads.
                     # If already in a thread use that root; otherwise the bot message is its own root.
                     effective_root = thread_root if thread_root else sent.message_id
+                    session_key = msg.metadata.get("session_key")
                     self._thread_roots[sent.message_id] = {
                         "root": effective_root,
-                        "session": msg.metadata.get("session_key"),
+                        "session": session_key,
                     }
                     self._save_thread_roots()
                     _thread_tracked = True
+                    # Tag the bot's reply with the same session emoji
+                    if session_key:
+                        asyncio.create_task(self._react(msg.chat_id, sent.message_id, _session_emoji(session_key)))
 
     async def _on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
@@ -515,6 +532,9 @@ class TelegramChannel(BaseChannel):
             # We do NOT mark stateless so the turn is saved and replies have context.
             session_key = f"telegram:{str_chat_id}:{message.message_id}"
 
+        # Tag the incoming message with the session emoji
+        asyncio.create_task(self._react(str_chat_id, message.message_id, _session_emoji(session_key)))
+
         # Forward to the message bus
         await self._handle_message(
             sender_id=sender_id,
@@ -562,6 +582,20 @@ class TelegramChannel(BaseChannel):
             pass
         except Exception as e:
             logger.debug("Typing indicator stopped for {}: {}", chat_id, e)
+
+    async def _react(self, chat_id: str, message_id: int, emoji: str) -> None:
+        """Add a reaction to a message (fire-and-forget, errors are silently ignored)."""
+        if not self._app:
+            return
+        try:
+            from telegram import ReactionTypeEmoji
+            await self._app.bot.set_message_reaction(
+                chat_id=int(chat_id),
+                message_id=message_id,
+                reaction=[ReactionTypeEmoji(emoji=emoji)],
+            )
+        except Exception as e:
+            logger.debug("Failed to set reaction on {}/{}: {}", chat_id, message_id, e)
 
     async def _on_error(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Log polling / handler errors instead of silently swallowing them."""
