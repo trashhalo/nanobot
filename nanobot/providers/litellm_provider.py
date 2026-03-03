@@ -3,11 +3,13 @@
 import os
 import secrets
 import string
+import time
 from typing import Any
 
 import json_repair
 import litellm
 from litellm import acompletion
+from loguru import logger
 
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from nanobot.providers.registry import find_by_model, find_gateway
@@ -62,6 +64,8 @@ class LiteLLMProvider(LLMProvider):
         # Register callbacks from LITELLM_CALLBACKS env var (comma-separated, e.g. "otel,langfuse")
         if callbacks_env := os.environ.get("LITELLM_CALLBACKS"):
             litellm.callbacks = [c.strip() for c in callbacks_env.split(",") if c.strip()]
+
+        self._llm_logging = os.environ.get("LLM_LOGGING", "").lower() == "true"
 
     def _setup_env(self, api_key: str, api_base: str | None, model: str) -> None:
         """Set environment variables based on detected provider."""
@@ -259,7 +263,42 @@ class LiteLLMProvider(LLMProvider):
             kwargs["tool_choice"] = "auto"
 
         try:
+            if self._llm_logging:
+                logger.info(
+                    "LLM request: model={} messages={} tools={}",
+                    model,
+                    len(kwargs["messages"]),
+                    len(tools) if tools else 0,
+                )
+                for msg in kwargs["messages"]:
+                    role = msg.get("role", "?")
+                    content = msg.get("content") or ""
+                    if isinstance(content, list):
+                        content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
+                    logger.info("  [{}] {}", role, str(content)[:500])
+
+            t0 = time.monotonic()
             response = await acompletion(**kwargs)
+            elapsed = time.monotonic() - t0
+
+            if self._llm_logging:
+                usage = response.usage
+                choice = response.choices[0]
+                content = getattr(choice.message, "content", None) or ""
+                tool_calls = getattr(choice.message, "tool_calls", None) or []
+                logger.info(
+                    "LLM response: model={} tokens={}+{}={} duration={:.2f}s finish={} tools={}",
+                    model,
+                    usage.prompt_tokens if usage else "?",
+                    usage.completion_tokens if usage else "?",
+                    usage.total_tokens if usage else "?",
+                    elapsed,
+                    choice.finish_reason,
+                    [tc.function.name for tc in tool_calls],
+                )
+                if content:
+                    logger.info("  [assistant] {}", str(content)[:500])
+
             return self._parse_response(response)
         except Exception as e:
             if fallbacks:
