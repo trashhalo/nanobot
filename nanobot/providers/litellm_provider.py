@@ -290,12 +290,17 @@ class LiteLLMProvider(LLMProvider):
                 choice = response.choices[0]
                 content = getattr(choice.message, "content", None) or ""
                 tool_calls = getattr(choice.message, "tool_calls", None) or []
+                cached_tokens = 0
+                if usage:
+                    details = getattr(usage, "prompt_tokens_details", None)
+                    cached_tokens = getattr(details, "cached_tokens", 0) or 0
                 logger.info(
-                    "LLM response: model={} tokens={}+{}={} duration={:.2f}s finish={} tools={}",
+                    "LLM response: model={} tokens={}+{}={} cached={} duration={:.2f}s finish={} tools={}",
                     model,
                     usage.prompt_tokens if usage else "?",
                     usage.completion_tokens if usage else "?",
                     usage.total_tokens if usage else "?",
+                    cached_tokens,
                     elapsed,
                     choice.finish_reason,
                     [tc.function.name for tc in tool_calls],
