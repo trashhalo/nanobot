@@ -292,15 +292,21 @@ class LiteLLMProvider(LLMProvider):
                 tool_calls = getattr(choice.message, "tool_calls", None) or []
                 cached_tokens = 0
                 if usage:
+                    # OpenAI format
                     details = getattr(usage, "prompt_tokens_details", None)
                     cached_tokens = getattr(details, "cached_tokens", 0) or 0
+                    # Anthropic format (cache_read_input_tokens)
+                    if not cached_tokens:
+                        cached_tokens = getattr(usage, "cache_read_input_tokens", 0) or 0
+                cache_created = getattr(usage, "cache_creation_input_tokens", 0) if usage else 0
                 logger.info(
-                    "LLM response: model={} tokens={}+{}={} cached={} duration={:.2f}s finish={} tools={}",
+                    "LLM response: model={} tokens={}+{}={} cached={} cache_created={} duration={:.2f}s finish={} tools={}",
                     model,
                     usage.prompt_tokens if usage else "?",
                     usage.completion_tokens if usage else "?",
                     usage.total_tokens if usage else "?",
                     cached_tokens,
+                    cache_created,
                     elapsed,
                     choice.finish_reason,
                     [tc.function.name for tc in tool_calls],
