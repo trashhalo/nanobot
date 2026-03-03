@@ -363,6 +363,7 @@ class AgentLoop:
         session_key: str | None = None,
         on_progress: Callable[[str], Awaitable[None]] | None = None,
         skill_names: list[str] | None = None,
+        stateless: bool = False,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
         # System messages: parse origin from chat_id ("channel:chat_id")
@@ -453,7 +454,7 @@ class AgentLoop:
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()
 
-        history = session.get_history(max_messages=self.memory_window)
+        history = [] if stateless else session.get_history(max_messages=self.memory_window)
         initial_messages = self.context.build_messages(
             history=history,
             current_message=msg.content,
@@ -477,8 +478,9 @@ class AgentLoop:
         if final_content is None:
             final_content = "I've completed processing but have no response to give."
 
-        self._save_turn(session, all_msgs, 1 + len(history))
-        self.sessions.save(session)
+        if not stateless:
+            self._save_turn(session, all_msgs, 1 + len(history))
+            self.sessions.save(session)
 
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
             return None
@@ -529,11 +531,12 @@ class AgentLoop:
         chat_id: str = "direct",
         on_progress: Callable[[str], Awaitable[None]] | None = None,
         skill_names: list[str] | None = None,
+        stateless: bool = False,
     ) -> str:
         """Process a message directly (for CLI or cron usage)."""
         await self._connect_mcp()
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
-        response = await self._process_message(msg, session_key=session_key, on_progress=on_progress, skill_names=skill_names)
+        response = await self._process_message(msg, session_key=session_key, on_progress=on_progress, skill_names=skill_names, stateless=stateless)
         return response.content if response else ""
 
     async def process_event_batch(

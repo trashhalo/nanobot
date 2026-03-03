@@ -312,6 +312,7 @@ def gateway(
             channel=job.payload.channel or "cli",
             chat_id=job.payload.to or "direct",
             skill_names=job.payload.skills or None,
+            stateless=True,
         )
 
         message_tool = agent.tools.get("message")
