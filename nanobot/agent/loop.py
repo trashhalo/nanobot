@@ -485,7 +485,7 @@ class AgentLoop:
         logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
         return OutboundMessage(
             channel=msg.channel, chat_id=msg.chat_id, content=final_content,
-            metadata=msg.metadata or {},
+            metadata={**(msg.metadata or {}), "session_key": key},
         )
 
     def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:

@@ -219,7 +219,14 @@ class TelegramChannel(BaseChannel):
             return
         try:
             raw = json.loads(self._thread_roots_path.read_text(encoding="utf-8"))
-            self._thread_roots = {int(k): int(v) for k, v in raw.items()}
+            loaded = {}
+            for k, v in raw.items():
+                # Support both old format (int) and new format (dict with root+session)
+                if isinstance(v, dict):
+                    loaded[int(k)] = v
+                else:
+                    loaded[int(k)] = {"root": int(v), "session": None}
+            self._thread_roots = loaded
             logger.debug("Loaded {} thread roots from disk", len(self._thread_roots))
         except Exception:
             logger.warning("Failed to load thread roots from {}", self._thread_roots_path)
@@ -325,7 +332,10 @@ class TelegramChannel(BaseChannel):
                     # Track every bot message so users can reply to start/continue threads.
                     # If already in a thread use that root; otherwise the bot message is its own root.
                     effective_root = thread_root if thread_root else sent.message_id
-                    self._thread_roots[sent.message_id] = effective_root
+                    self._thread_roots[sent.message_id] = {
+                        "root": effective_root,
+                        "session": msg.metadata.get("session_key"),
+                    }
                     self._save_thread_roots()
                     _thread_tracked = True
 
@@ -478,10 +488,14 @@ class TelegramChannel(BaseChannel):
         if message.reply_to_message:
             reply_to_id = message.reply_to_message.message_id
             if reply_to_id in self._thread_roots:
-                root_id = self._thread_roots[reply_to_id]
-                self._thread_roots[message.message_id] = root_id
+                entry = self._thread_roots[reply_to_id]
+                root_id = entry["root"] if isinstance(entry, dict) else entry
+                session_origin = entry.get("session") if isinstance(entry, dict) else None
+                self._thread_roots[message.message_id] = {"root": root_id, "session": session_origin}
                 self._save_thread_roots()
-                session_key = f"thread:{root_id}"
+                # Route to the originating session so the reply has full context.
+                # Fall back to a thread-scoped session for legacy entries without session info.
+                session_key = session_origin or f"thread:{root_id}"
 
         # Start typing indicator before processing
         self._start_typing(str_chat_id)
