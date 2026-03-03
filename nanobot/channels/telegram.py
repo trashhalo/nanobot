@@ -510,10 +510,9 @@ class TelegramChannel(BaseChannel):
             metadata["in_thread"] = True
             metadata["thread_root"] = root_id
         else:
-            # Plain message (no reply-to) — stateless, no accumulated history.
-            # Use a per-message session key so replies to the bot's response
-            # create an isolated thread rather than routing into the full DM history.
-            metadata["stateless"] = True
+            # Plain message (no reply-to) — fresh per-message session.
+            # The unique session key ensures no prior history is loaded.
+            # We do NOT mark stateless so the turn is saved and replies have context.
             session_key = f"telegram:{str_chat_id}:{message.message_id}"
 
         # Forward to the message bus
