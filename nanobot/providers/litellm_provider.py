@@ -276,7 +276,7 @@ class LiteLLMProvider(LLMProvider):
                     content = msg.get("content") or ""
                     if isinstance(content, list):
                         content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
-                    text = str(content)
+                    text = str(content).replace("\n", "\\n")
                     if self._llm_log_truncate >= 0:
                         text = text[:self._llm_log_truncate]
                     logger.info("  [{}] {}", role, text)
@@ -301,7 +301,7 @@ class LiteLLMProvider(LLMProvider):
                     [tc.function.name for tc in tool_calls],
                 )
                 if content:
-                    text = str(content)
+                    text = str(content).replace("\n", "\\n")
                     if self._llm_log_truncate >= 0:
                         text = text[:self._llm_log_truncate]
                     logger.info("  [assistant] {}", text)
