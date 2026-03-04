@@ -551,6 +551,7 @@ class AgentLoop:
         scripts = self.context.skills.get_skill_hook_scripts("pre_context")
         if not scripts:
             return ""
+        logger.info("pre_context hooks: firing {} script(s): {}", len(scripts), [s.name for s in scripts])
         timeout = (self.channels_config.hook_timeout if self.channels_config else 10)
         payload = json.dumps({"message": message, "session_key": session_key,
                               "channel": channel, "chat_id": chat_id})
@@ -567,9 +568,13 @@ class AgentLoop:
                     proc.communicate(payload.encode()), timeout=timeout
                 )
                 if stderr:
-                    logger.debug("pre_context hook {}: {}", script.name, stderr.decode().strip())
+                    logger.info("pre_context hook {} stderr: {}", script.name, stderr.decode().strip())
                 if stdout:
-                    parts.append(stdout.decode().strip())
+                    output = stdout.decode().strip()
+                    logger.info("pre_context hook {} returned {} chars of context", script.name, len(output))
+                    parts.append(output)
+                else:
+                    logger.info("pre_context hook {} returned no output", script.name)
             except asyncio.TimeoutError:
                 logger.warning("pre_context hook {} timed out after {}s", script.name, timeout)
             except Exception as e:
@@ -583,6 +588,7 @@ class AgentLoop:
         scripts = self.context.skills.get_skill_hook_scripts("post_turn")
         if not scripts:
             return
+        logger.info("post_turn hooks: firing {} script(s): {}", len(scripts), [s.name for s in scripts])
         timeout = (self.channels_config.hook_timeout if self.channels_config else 10)
         payload = json.dumps({"session_key": session_key, "channel": channel,
                               "chat_id": chat_id, "messages": messages})
@@ -598,7 +604,9 @@ class AgentLoop:
                     proc.communicate(payload.encode()), timeout=timeout
                 )
                 if stderr:
-                    logger.debug("post_turn hook {}: {}", script.name, stderr.decode().strip())
+                    logger.info("post_turn hook {} stderr: {}", script.name, stderr.decode().strip())
+                else:
+                    logger.info("post_turn hook {} completed with no output", script.name)
             except asyncio.TimeoutError:
                 logger.warning("post_turn hook {} timed out after {}s", script.name, timeout)
             except Exception as e:
