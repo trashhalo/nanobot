@@ -136,7 +136,10 @@ class AgentLoop:
         ))
         self.tools.register(WebSearchTool(api_key=self.brave_api_key, proxy=self.web_proxy, provider=self.provider, search_model=self.search_model))
         self.tools.register(WebFetchTool(proxy=self.web_proxy))
-        self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
+        self.tools.register(MessageTool(
+            send_callback=self.bus.publish_outbound,
+            suppress_patterns=self.channels_config.suppress_patterns if self.channels_config else [],
+        ))
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
@@ -493,13 +496,12 @@ class AgentLoop:
                 asyncio.create_task(self._fire_post_turn_hooks(new_msgs, key, msg.channel, msg.chat_id))
 
         if self.channels_config and self.channels_config.suppress_patterns and final_content:
-            for pattern in self.channels_config.suppress_patterns:
-                try:
-                    if re.search(pattern, final_content, re.IGNORECASE):
-                        logger.info("Suppressed channel output matching pattern '{}': {}...", pattern, final_content[:80])
-                        return None
-                except re.error:
-                    logger.warning("Invalid suppress_pattern (skipping): {}", pattern)
+            from nanobot.agent.tools.message import filter_suppressed
+            filtered = filter_suppressed(final_content, self.channels_config.suppress_patterns)
+            if filtered is None:
+                logger.info("Suppressed channel output (all lines matched suppress_patterns): {}...", final_content[:80])
+                return None
+            final_content = filtered
 
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
             return None

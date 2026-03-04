@@ -1,9 +1,39 @@
 """Message tool for sending messages to users."""
 
+import re
 from typing import Any, Awaitable, Callable
 
 from nanobot.agent.tools.base import Tool
 from nanobot.bus.events import OutboundMessage
+
+
+def filter_suppressed(content: str, patterns: list[str]) -> str | None:
+    """Filter lines matching suppress_patterns.
+
+    Each non-empty line is tested against every pattern (case-insensitive).
+    Matching lines are removed. If no non-empty lines remain, returns None
+    (suppress the whole message). Blank lines are kept only if surrounded by
+    kept content.
+    """
+    lines = content.splitlines()
+    kept = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            kept.append(line)
+            continue
+        suppressed = False
+        for pattern in patterns:
+            try:
+                if re.search(pattern, stripped, re.IGNORECASE):
+                    suppressed = True
+                    break
+            except re.error:
+                pass
+        if not suppressed:
+            kept.append(line)
+    result = "\n".join(kept).strip()
+    return result if result else None
 
 
 class MessageTool(Tool):
@@ -15,12 +45,14 @@ class MessageTool(Tool):
         default_channel: str = "",
         default_chat_id: str = "",
         default_message_id: str | None = None,
+        suppress_patterns: list[str] | None = None,
     ):
         self._send_callback = send_callback
         self._default_channel = default_channel
         self._default_chat_id = default_chat_id
         self._default_message_id = default_message_id
         self._sent_in_turn: bool = False
+        self._suppress_patterns: list[str] = suppress_patterns or []
 
     def set_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
         """Set the current message context."""
@@ -88,6 +120,11 @@ class MessageTool(Tool):
 
         if not self._send_callback:
             return "Error: Message sending not configured"
+
+        if self._suppress_patterns:
+            content = filter_suppressed(content, self._suppress_patterns)
+            if content is None:
+                return "Message suppressed by suppress_patterns"
 
         msg = OutboundMessage(
             channel=channel,
