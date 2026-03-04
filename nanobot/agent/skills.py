@@ -215,6 +215,7 @@ class SkillsLoader:
         Supported hooks:
             pre_context  — runs before context is built; stdout is injected into the system prompt
             post_turn    — runs after the turn is saved; fire-and-forget, stdout ignored
+            pre_tool     — runs before each tool call; stdout rejects the call (returned as tool error)
         """
         results = []
         for skills_dir in (self.workspace_skills, self.builtin_skills):

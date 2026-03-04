@@ -259,7 +259,13 @@ class AgentLoop:
                     tools_used.append(tool_call.name)
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                     logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
-                    if extra_tools and tool_call.name in extra_tools:
+                    rejection = await self._run_pre_tool_hooks(
+                        tool_call.name, tool_call.arguments, response.content or ""
+                    )
+                    if rejection:
+                        logger.info("pre_tool hook rejected tool call {}: {}", tool_call.name, rejection[:100])
+                        result = rejection
+                    elif extra_tools and tool_call.name in extra_tools:
                         _, handler = extra_tools[tool_call.name]
                         result = await handler(tool_call.arguments)
                     else:
@@ -581,6 +587,48 @@ class AgentLoop:
             except Exception as e:
                 logger.warning("pre_context hook {} failed: {}", script.name, e)
         return "\n\n".join(parts)
+
+    async def _run_pre_tool_hooks(
+        self, tool_name: str, tool_args: dict, assistant_message: str
+    ) -> str | None:
+        """Run pre_tool hook scripts from all skills before each tool call.
+
+        Hooks receive JSON on stdin:
+          {"tool_name": "...", "tool_args": {...}, "assistant_message": "..."}
+
+        If a hook writes to stdout, the tool call is rejected and the stdout
+        is returned as the tool result (the LLM sees it as an error to correct).
+        If stdout is empty, the tool call proceeds normally.
+        """
+        scripts = self.context.skills.get_skill_hook_scripts("pre_tool")
+        if not scripts:
+            return None
+        timeout = (self.channels_config.hook_timeout if self.channels_config else 10)
+        payload = json.dumps({
+            "tool_name": tool_name,
+            "tool_args": tool_args,
+            "assistant_message": assistant_message,
+        }).encode()
+        for script in scripts:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    str(script),
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(payload), timeout=timeout
+                )
+                if stderr:
+                    logger.info("pre_tool hook {} stderr: {}", script.name, stderr.decode().strip())
+                if stdout:
+                    return stdout.decode().strip()
+            except asyncio.TimeoutError:
+                logger.warning("pre_tool hook {} timed out after {}s", script.name, timeout)
+            except Exception as e:
+                logger.warning("pre_tool hook {} failed: {}", script.name, e)
+        return None
 
     async def _fire_post_turn_hooks(
         self, messages: list[dict], session_key: str, channel: str, chat_id: str
