@@ -46,6 +46,7 @@ class MessageTool(Tool):
         default_chat_id: str = "",
         default_message_id: str | None = None,
         suppress_patterns: list[str] | None = None,
+        retrieval_fn: Callable[[str], Awaitable[str | None]] | None = None,
     ):
         self._send_callback = send_callback
         self._default_channel = default_channel
@@ -53,6 +54,7 @@ class MessageTool(Tool):
         self._default_message_id = default_message_id
         self._sent_in_turn: bool = False
         self._suppress_patterns: list[str] = suppress_patterns or []
+        self._retrieval_fn = retrieval_fn
 
     def set_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
         """Set the current message context."""
@@ -122,8 +124,13 @@ class MessageTool(Tool):
             return "Error: Message sending not configured"
 
         if self._suppress_patterns:
+            original = content
             content = filter_suppressed(content, self._suppress_patterns)
             if content is None:
+                if self._retrieval_fn:
+                    learnings = await self._retrieval_fn(original)
+                    if learnings:
+                        return f"[Intent noted, not sent to user]\n\n{learnings}"
                 return "Message suppressed by suppress_patterns"
 
         msg = OutboundMessage(

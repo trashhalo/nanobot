@@ -139,6 +139,7 @@ class AgentLoop:
         self.tools.register(MessageTool(
             send_callback=self.bus.publish_outbound,
             suppress_patterns=self.channels_config.suppress_patterns if self.channels_config else [],
+            retrieval_fn=lambda content: self._run_pre_context_hooks(content, "intent", "intent", "intent"),
         ))
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
