@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import subprocess
 import weakref
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -456,12 +457,14 @@ class AgentLoop:
                 message_tool.start_turn()
 
         history = [] if stateless else session.get_history(max_messages=self.memory_window)
+        pre_context = await self._run_pre_context_hooks(msg.content, key, msg.channel, msg.chat_id)
         initial_messages = self.context.build_messages(
             history=history,
             current_message=msg.content,
             media=msg.media if msg.media else None,
             channel=msg.channel, chat_id=msg.chat_id,
             skill_names=skill_names,
+            extra_context=pre_context or None,
         )
 
         async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
@@ -485,6 +488,18 @@ class AgentLoop:
         if not stateless:
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
+            new_msgs = all_msgs[1 + len(history):]
+            if new_msgs:
+                asyncio.create_task(self._fire_post_turn_hooks(new_msgs, key, msg.channel, msg.chat_id))
+
+        if self.channels_config and self.channels_config.suppress_patterns and final_content:
+            for pattern in self.channels_config.suppress_patterns:
+                try:
+                    if re.search(pattern, final_content, re.IGNORECASE):
+                        logger.info("Suppressed channel output matching pattern '{}': {}...", pattern, final_content[:80])
+                        return None
+                except re.error:
+                    logger.warning("Invalid suppress_pattern (skipping): {}", pattern)
 
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
             return None
@@ -526,6 +541,66 @@ class AgentLoop:
             session, self.provider, self.model,
             archive_all=archive_all, memory_window=self.memory_window,
         )
+
+    async def _run_pre_context_hooks(
+        self, message: str, session_key: str, channel: str, chat_id: str
+    ) -> str:
+        """Run pre_context hook scripts from all skills. Returns combined markdown output."""
+        scripts = self.context.skills.get_skill_hook_scripts("pre_context")
+        if not scripts:
+            return ""
+        timeout = (self.channels_config.hook_timeout if self.channels_config else 10)
+        payload = json.dumps({"message": message, "session_key": session_key,
+                              "channel": channel, "chat_id": chat_id})
+        parts = []
+        for script in scripts:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    str(script),
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(payload.encode()), timeout=timeout
+                )
+                if stderr:
+                    logger.debug("pre_context hook {}: {}", script.name, stderr.decode().strip())
+                if stdout:
+                    parts.append(stdout.decode().strip())
+            except asyncio.TimeoutError:
+                logger.warning("pre_context hook {} timed out after {}s", script.name, timeout)
+            except Exception as e:
+                logger.warning("pre_context hook {} failed: {}", script.name, e)
+        return "\n\n".join(parts)
+
+    async def _fire_post_turn_hooks(
+        self, messages: list[dict], session_key: str, channel: str, chat_id: str
+    ) -> None:
+        """Fire post_turn hook scripts from all skills (non-blocking, best-effort)."""
+        scripts = self.context.skills.get_skill_hook_scripts("post_turn")
+        if not scripts:
+            return
+        timeout = (self.channels_config.hook_timeout if self.channels_config else 10)
+        payload = json.dumps({"session_key": session_key, "channel": channel,
+                              "chat_id": chat_id, "messages": messages})
+        for script in scripts:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    str(script),
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await asyncio.wait_for(
+                    proc.communicate(payload.encode()), timeout=timeout
+                )
+                if stderr:
+                    logger.debug("post_turn hook {}: {}", script.name, stderr.decode().strip())
+            except asyncio.TimeoutError:
+                logger.warning("post_turn hook {} timed out after {}s", script.name, timeout)
+            except Exception as e:
+                logger.warning("post_turn hook {} failed: {}", script.name, e)
 
     async def process_direct(
         self,

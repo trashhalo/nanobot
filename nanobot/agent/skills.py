@@ -206,6 +206,28 @@ class SkillsLoader:
                         results.append(content)
         return results
 
+    def get_skill_hook_scripts(self, hook_name: str) -> list[Path]:
+        """Return paths to executable hook scripts named hook_name across all installed skills.
+
+        Skills can expose hooks by placing an executable file at:
+            hooks/nanobot/<hook_name>
+
+        Supported hooks:
+            pre_context  — runs before context is built; stdout is injected into the system prompt
+            post_turn    — runs after the turn is saved; fire-and-forget, stdout ignored
+        """
+        results = []
+        for skills_dir in (self.workspace_skills, self.builtin_skills):
+            if not skills_dir or not skills_dir.exists():
+                continue
+            for skill_dir in sorted(skills_dir.iterdir()):
+                if not skill_dir.is_dir():
+                    continue
+                hook_file = skill_dir / "hooks" / "nanobot" / hook_name
+                if hook_file.exists() and os.access(hook_file, os.X_OK):
+                    results.append(hook_file)
+        return results
+
     def get_always_skills(self) -> list[str]:
         """Get skills marked as always=true that meet requirements."""
         result = []

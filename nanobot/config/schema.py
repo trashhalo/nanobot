@@ -240,6 +240,8 @@ class ChannelsConfig(Base):
 
     send_progress: bool = True    # stream agent's text progress to the channel
     send_tool_hints: bool = False  # stream tool-call hints (e.g. read_file("…"))
+    suppress_patterns: list[str] = Field(default_factory=list)  # Regex patterns; matching final responses are kept in context but not sent to the channel
+    hook_timeout: int = 10  # Seconds before a pre_context or post_turn hook script is killed
     whatsapp: WhatsAppConfig = Field(default_factory=WhatsAppConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
