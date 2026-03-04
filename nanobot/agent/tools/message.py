@@ -130,7 +130,7 @@ class MessageTool(Tool):
                 if self._retrieval_fn:
                     learnings = await self._retrieval_fn(original)
                     if learnings:
-                        return f"[Intent noted, not sent to user]\n\n{learnings}"
+                        return f"[Message suppressed, not sent to user]\n\n{learnings}"
                 return "Message suppressed by suppress_patterns"
 
         msg = OutboundMessage(
