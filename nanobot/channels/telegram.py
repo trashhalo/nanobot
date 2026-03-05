@@ -512,6 +512,15 @@ class TelegramChannel(BaseChannel):
                 # Route to the originating session so the reply has full context.
                 # Fall back to a thread-scoped session for legacy entries without session info.
                 session_key = session_origin or f"thread:{root_id}"
+                logger.info(
+                    "Reply-to resolved: msg={} reply_to={} root={} session_origin={} -> session_key={}",
+                    message.message_id, reply_to_id, root_id, session_origin, session_key,
+                )
+            else:
+                logger.warning(
+                    "Reply-to NOT in thread_roots: msg={} reply_to={} — treating as fresh session (thread_roots size={})",
+                    message.message_id, reply_to_id, len(self._thread_roots),
+                )
 
         # Start typing indicator before processing
         self._start_typing(str_chat_id)
