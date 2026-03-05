@@ -516,6 +516,14 @@ class TelegramChannel(BaseChannel):
                     "Reply-to resolved: msg={} reply_to={} root={} session_origin={} -> session_key={}",
                     message.message_id, reply_to_id, root_id, session_origin, session_key,
                 )
+                # If the replied-to message has no session (e.g. cron job), the fallback
+                # thread session has no history. Prepend the original message text so the
+                # bot always has context of what was being replied to.
+                if session_origin is None:
+                    replied_text = message.reply_to_message.text or message.reply_to_message.caption or ""
+                    if replied_text:
+                        content = f"[Replying to bot message: \"{replied_text}\"]\n\n{content}"
+                        logger.info("Injected replied-to text into content (no session on original message)")
             else:
                 logger.warning(
                     "Reply-to NOT in thread_roots: msg={} reply_to={} — treating as fresh session (thread_roots size={})",
