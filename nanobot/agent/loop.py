@@ -120,6 +120,7 @@ class AgentLoop:
         self._consolidation_tasks: set[asyncio.Task] = set()  # Strong refs to in-flight tasks
         self._consolidation_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
         self._active_tasks: dict[str, list[asyncio.Task]] = {}  # session_key -> tasks
+        self._current_session_key: str | None = None  # set before each _run_agent_loop call
         self._processing_lock = asyncio.Lock()
         self._register_default_tools()
 
@@ -393,6 +394,7 @@ class AgentLoop:
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
             )
+            self._current_session_key = key
             final_content, _, all_msgs = await self._run_agent_loop(messages)
             # Only persist if the LLM produced a real assistant response.
             # On LLM error, all_msgs ends with the user message — saving it would
@@ -488,6 +490,7 @@ class AgentLoop:
         async def _noop_progress(content: str, *, tool_hint: bool = False) -> None:
             pass
 
+        self._current_session_key = key
         final_content, _, all_msgs = await self._run_agent_loop(
             initial_messages, on_progress=on_progress or (_noop_progress if stateless else _bus_progress),
         )
@@ -608,6 +611,7 @@ class AgentLoop:
             "tool_name": tool_name,
             "tool_args": tool_args,
             "assistant_message": assistant_message,
+            "session_key": self._current_session_key,
         }).encode()
         for script in scripts:
             try:
@@ -741,6 +745,7 @@ class AgentLoop:
         )
 
         logger.info("IPC: processing {} event(s) on topic '{}'", count, topic)
+        self._current_session_key = f"ipc:{topic}"
         await self._run_agent_loop(
             messages,
             extra_tools={"save_scratchpad": (save_scratchpad_def, _handle_save_scratchpad)},
