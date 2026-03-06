@@ -207,6 +207,7 @@ class AgentLoop:
         initial_messages: list[dict],
         on_progress: Callable[..., Awaitable[None]] | None = None,
         extra_tools: dict[str, tuple[dict, Callable[..., Awaitable[str]]]] | None = None,
+        on_max_iterations: Callable[[], Awaitable[None]] | None = None,
     ) -> tuple[str | None, list[str], list[dict]]:
         """Run the agent iteration loop. Returns (final_content, tools_used, messages)."""
         messages = initial_messages
@@ -295,6 +296,8 @@ class AgentLoop:
                 f"I reached the maximum number of tool call iterations ({self.max_iterations}) "
                 "without completing the task. You can try breaking the task into smaller steps."
             )
+            if on_max_iterations:
+                await on_max_iterations()
 
         return final_content, tools_used, messages
 
@@ -492,7 +495,9 @@ class AgentLoop:
 
         self._current_session_key = key
         final_content, _, all_msgs = await self._run_agent_loop(
-            initial_messages, on_progress=on_progress or (_noop_progress if stateless else _bus_progress),
+            initial_messages,
+            on_progress=on_progress or (_noop_progress if stateless else _bus_progress),
+            on_max_iterations=lambda: self._fire_max_iterations_hooks(key, msg.channel, msg.chat_id),
         )
 
         if final_content is None:
@@ -633,6 +638,39 @@ class AgentLoop:
             except Exception as e:
                 logger.warning("pre_tool hook {} failed: {}", script.name, e)
         return None
+
+    async def _fire_max_iterations_hooks(
+        self, session_key: str, channel: str, chat_id: str
+    ) -> None:
+        """Fire max_iterations hook scripts from all skills when the tool call limit is reached."""
+        scripts = self.context.skills.get_skill_hook_scripts("max_iterations")
+        if not scripts:
+            return
+        logger.info("max_iterations hooks: firing {} script(s): {}", len(scripts), [s.name for s in scripts])
+        timeout = (self.channels_config.hook_timeout if self.channels_config else 30)
+        payload = json.dumps({
+            "session_key": session_key,
+            "channel": channel,
+            "chat_id": chat_id,
+            "max_iterations": self.max_iterations,
+        }).encode()
+        for script in scripts:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    str(script),
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await asyncio.wait_for(
+                    proc.communicate(payload), timeout=timeout
+                )
+                if stderr:
+                    logger.info("max_iterations hook {} stderr: {}", script.name, stderr.decode().strip())
+            except asyncio.TimeoutError:
+                logger.warning("max_iterations hook {} timed out after {}s", script.name, timeout)
+            except Exception as e:
+                logger.warning("max_iterations hook {} failed: {}", script.name, e)
 
     async def _fire_post_turn_hooks(
         self, messages: list[dict], session_key: str, channel: str, chat_id: str
