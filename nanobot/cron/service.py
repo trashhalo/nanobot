@@ -341,6 +341,42 @@ class CronService:
 
         return removed
 
+    def update_job(
+        self,
+        job_id: str,
+        message: str | None = None,
+        deliver: bool | None = None,
+        channel: str | None = None,
+        to: str | None = None,
+        skills: list[str] | None = None,
+        schedule: CronSchedule | None = None,
+    ) -> CronJob | None:
+        """Update fields on an existing job."""
+        store = self._load_store()
+        for job in store.jobs:
+            if job.id == job_id:
+                if message is not None:
+                    job.payload.message = message
+                    job.name = message[:30]
+                if deliver is not None:
+                    job.payload.deliver = deliver
+                if channel is not None:
+                    job.payload.channel = channel
+                if to is not None:
+                    job.payload.to = to
+                if skills is not None:
+                    job.payload.skills = skills
+                if schedule is not None:
+                    _validate_schedule_for_add(schedule)
+                    job.schedule = schedule
+                    job.state.next_run_at_ms = _compute_next_run(schedule, _now_ms())
+                job.updated_at_ms = _now_ms()
+                self._save_store()
+                self._arm_timer()
+                logger.info("Cron: updated job '{}' ({})", job.name, job.id)
+                return job
+        return None
+
     def enable_job(self, job_id: str, enabled: bool = True) -> CronJob | None:
         """Enable or disable a job."""
         store = self._load_store()

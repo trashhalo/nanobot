@@ -35,6 +35,12 @@ Timezone-aware cron:
 cron(action="add", message="Morning standup", cron_expr="0 9 * * 1-5", tz="America/Vancouver")
 ```
 
+Update an existing job (patch any fields without removing/re-adding):
+```
+cron(action="update", job_id="abc123", deliver=True)
+cron(action="update", job_id="abc123", message="New message text", skills=["email-backlog"])
+```
+
 List/remove:
 ```
 cron(action="list")

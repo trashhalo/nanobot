@@ -26,7 +26,7 @@ class CronTool(Tool):
 
     @property
     def description(self) -> str:
-        return "Schedule reminders and recurring tasks. Actions: add, list, remove."
+        return "Schedule reminders and recurring tasks. Actions: add, list, remove, update."
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -35,7 +35,7 @@ class CronTool(Tool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["add", "list", "remove"],
+                    "enum": ["add", "list", "remove", "update"],
                     "description": "Action to perform",
                 },
                 "message": {"type": "string", "description": "Reminder message (for add)"},
@@ -55,7 +55,11 @@ class CronTool(Tool):
                     "type": "string",
                     "description": "ISO datetime for one-time execution (e.g. '2026-02-12T10:30:00')",
                 },
-                "job_id": {"type": "string", "description": "Job ID (for remove)"},
+                "job_id": {"type": "string", "description": "Job ID (for remove/update)"},
+                "deliver": {
+                    "type": "boolean",
+                    "description": "Whether to deliver the response to the user (for update)",
+                },
                 "skills": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -74,6 +78,7 @@ class CronTool(Tool):
         tz: str | None = None,
         at: str | None = None,
         job_id: str | None = None,
+        deliver: bool | None = None,
         skills: list[str] | None = None,
         **kwargs: Any,
     ) -> str:
@@ -83,6 +88,8 @@ class CronTool(Tool):
             return self._list_jobs()
         elif action == "remove":
             return self._remove_job(job_id)
+        elif action == "update":
+            return self._update_job(job_id, message or None, deliver, skills)
         return f"Unknown action: {action}"
 
     def _add_job(
@@ -142,6 +149,20 @@ class CronTool(Tool):
             return "No scheduled jobs."
         lines = [f"- {j.name} (id: {j.id}, {j.schedule.kind})" for j in jobs]
         return "Scheduled jobs:\n" + "\n".join(lines)
+
+    def _update_job(
+        self,
+        job_id: str | None,
+        message: str | None,
+        deliver: bool | None,
+        skills: list[str] | None,
+    ) -> str:
+        if not job_id:
+            return "Error: job_id is required for update"
+        job = self._cron.update_job(job_id, message=message, deliver=deliver, skills=skills)
+        if job:
+            return f"Updated job {job_id}"
+        return f"Job {job_id} not found"
 
     def _remove_job(self, job_id: str | None) -> str:
         if not job_id:
