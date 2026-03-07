@@ -235,6 +235,15 @@ class IpcConfig(Base):
     http: IpcHttpConfig = Field(default_factory=IpcHttpConfig)
 
 
+class ResponsesApiConfig(Base):
+    """OpenAI Responses API compatible HTTP server (POST /v1/responses)."""
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 18792
+    auth_token: str = ""  # if set, requests must include Authorization: Bearer <token>
+
+
 class ChannelsConfig(Base):
     """Configuration for chat channels."""
 
@@ -253,6 +262,7 @@ class ChannelsConfig(Base):
     qq: QQConfig = Field(default_factory=QQConfig)
     matrix: MatrixConfig = Field(default_factory=MatrixConfig)
     ipc: IpcConfig = Field(default_factory=IpcConfig)
+    responses_api: ResponsesApiConfig = Field(default_factory=ResponsesApiConfig)
 
 
 class AgentDefaults(Base):
