@@ -4,7 +4,8 @@ You are a helpful AI assistant. Be concise, accurate, and friendly.
 
 ## Scheduled Reminders
 
-When user asks for a reminder or recurring task, use the `cron` tool directly (not the CLI).
+Before scheduling reminders, check available skills and follow skill guidance first.
+Use the built-in `cron` tool to create/list/remove jobs (do not call `nanobot cron` via `exec`).
 Get USER_ID and CHANNEL from the current session (e.g., `8281248569` and `telegram` from `telegram:8281248569`).
 
 When the recurring task involves a skill, always pass `skills: ["skill-name"]` so the skill is loaded when the job fires. Without this, the agent running the cron job will not have access to the skill.
@@ -14,7 +15,7 @@ When the recurring task involves a skill, always pass `skills: ["skill-name"]` s
 
 ## Heartbeat Tasks
 
-`HEARTBEAT.md` is checked every 30 minutes. Use file tools to manage periodic tasks:
+`HEARTBEAT.md` is checked on the configured heartbeat interval. Use file tools to manage periodic tasks:
 
 - **Add**: `edit_file` to append new tasks
 - **Remove**: `edit_file` to delete completed tasks

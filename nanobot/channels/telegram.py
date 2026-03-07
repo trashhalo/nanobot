@@ -7,6 +7,8 @@ import hashlib
 import json
 import re
 from pathlib import Path
+import time
+import unicodedata
 
 from loguru import logger
 from telegram import BotCommand, ReplyParameters, Update
@@ -17,6 +19,50 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import TelegramConfig
+from nanobot.utils.helpers import split_message
+
+TELEGRAM_MAX_MESSAGE_LEN = 4000  # Telegram message character limit
+
+
+def _strip_md(s: str) -> str:
+    """Strip markdown inline formatting from text."""
+    s = re.sub(r'\*\*(.+?)\*\*', r'\1', s)
+    s = re.sub(r'__(.+?)__', r'\1', s)
+    s = re.sub(r'~~(.+?)~~', r'\1', s)
+    s = re.sub(r'`([^`]+)`', r'\1', s)
+    return s.strip()
+
+
+def _render_table_box(table_lines: list[str]) -> str:
+    """Convert markdown pipe-table to compact aligned text for <pre> display."""
+
+    def dw(s: str) -> int:
+        return sum(2 if unicodedata.east_asian_width(c) in ('W', 'F') else 1 for c in s)
+
+    rows: list[list[str]] = []
+    has_sep = False
+    for line in table_lines:
+        cells = [_strip_md(c) for c in line.strip().strip('|').split('|')]
+        if all(re.match(r'^:?-+:?$', c) for c in cells if c):
+            has_sep = True
+            continue
+        rows.append(cells)
+    if not rows or not has_sep:
+        return '\n'.join(table_lines)
+
+    ncols = max(len(r) for r in rows)
+    for r in rows:
+        r.extend([''] * (ncols - len(r)))
+    widths = [max(dw(r[c]) for r in rows) for c in range(ncols)]
+
+    def dr(cells: list[str]) -> str:
+        return '  '.join(f'{c}{" " * (w - dw(c))}' for c, w in zip(cells, widths))
+
+    out = [dr(rows[0])]
+    out.append('  '.join('─' * w for w in widths))
+    for row in rows[1:]:
+        out.append(dr(row))
+    return '\n'.join(out)
 
 
 _SESSION_EMOJIS = [
@@ -45,6 +91,27 @@ def _markdown_to_telegram_html(text: str) -> str:
         return f"\x00CB{len(code_blocks) - 1}\x00"
 
     text = re.sub(r'```[\w]*\n?([\s\S]*?)```', save_code_block, text)
+
+    # 1.5. Convert markdown tables to box-drawing (reuse code_block placeholders)
+    lines = text.split('\n')
+    rebuilt: list[str] = []
+    li = 0
+    while li < len(lines):
+        if re.match(r'^\s*\|.+\|', lines[li]):
+            tbl: list[str] = []
+            while li < len(lines) and re.match(r'^\s*\|.+\|', lines[li]):
+                tbl.append(lines[li])
+                li += 1
+            box = _render_table_box(tbl)
+            if box != '\n'.join(tbl):
+                code_blocks.append(box)
+                rebuilt.append(f"\x00CB{len(code_blocks) - 1}\x00")
+            else:
+                rebuilt.extend(tbl)
+        else:
+            rebuilt.append(lines[li])
+            li += 1
+    text = '\n'.join(rebuilt)
 
     # 2. Extract and protect inline code
     inline_codes: list[str] = []
@@ -92,26 +159,6 @@ def _markdown_to_telegram_html(text: str) -> str:
         text = text.replace(f"\x00CB{i}\x00", f"<pre><code>{escaped}</code></pre>")
 
     return text
-
-
-def _split_message(content: str, max_len: int = 4000) -> list[str]:
-    """Split content into chunks within max_len, preferring line breaks."""
-    if len(content) <= max_len:
-        return [content]
-    chunks: list[str] = []
-    while content:
-        if len(content) <= max_len:
-            chunks.append(content)
-            break
-        cut = content[:max_len]
-        pos = cut.rfind('\n')
-        if pos == -1:
-            pos = cut.rfind(' ')
-        if pos == -1:
-            pos = max_len
-        chunks.append(content[:pos])
-        content = content[pos:].lstrip()
-    return chunks
 
 
 class TelegramChannel(BaseChannel):
@@ -169,6 +216,7 @@ class TelegramChannel(BaseChannel):
         # Add command handlers
         self._app.add_handler(CommandHandler("start", self._on_start))
         self._app.add_handler(CommandHandler("new", self._forward_command))
+        self._app.add_handler(CommandHandler("stop", self._forward_command))
         self._app.add_handler(CommandHandler("help", self._on_help))
 
         # Add message handler for text, photos, voice, documents
@@ -275,7 +323,9 @@ class TelegramChannel(BaseChannel):
             logger.warning("Telegram bot not running")
             return
 
-        self._stop_typing(msg.chat_id)
+        # Only stop typing indicator for final responses
+        if not msg.metadata.get("_progress", False):
+            self._stop_typing(msg.chat_id)
 
         try:
             chat_id = int(msg.chat_id)
@@ -320,7 +370,7 @@ class TelegramChannel(BaseChannel):
 
         # Send text content
         if msg.content and msg.content != "[empty message]":
-            for chunk in _split_message(msg.content):
+            for chunk in split_message(msg.content, TELEGRAM_MAX_MESSAGE_LEN):
                 sent = None
                 try:
                     html = _markdown_to_telegram_html(chunk)
