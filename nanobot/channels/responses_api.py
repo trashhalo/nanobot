@@ -175,7 +175,7 @@ class ResponsesApiChannel(BaseChannel):
                 k, _, v = line.partition(":")
                 headers[k.strip().lower()] = v.strip()
 
-        if path != "/v1/responses":
+        if path not in ("/v1/responses", "/v1/chat/completions"):
             writer.write(_HTTP_404)
             await writer.drain()
             return
@@ -213,7 +213,11 @@ class ResponsesApiChannel(BaseChannel):
             await writer.drain()
             return
 
-        await self._handle_responses_endpoint(payload, writer)
+        if path == "/v1/chat/completions":
+            session_id = headers.get("x-session-id")
+            await self._handle_completions_endpoint(payload, writer, session_id=session_id)
+        else:
+            await self._handle_responses_endpoint(payload, writer)
 
     # ------------------------------------------------------------------
     # Responses API logic
@@ -415,5 +419,136 @@ class ResponsesApiChannel(BaseChannel):
             },
         }))
 
+        writer.write(b"data: [DONE]\n\n")
+        await writer.drain()
+
+    # ------------------------------------------------------------------
+    # Chat Completions API  (POST /v1/chat/completions)
+    # ------------------------------------------------------------------
+
+    async def _handle_completions_endpoint(
+        self, payload: dict, writer: asyncio.StreamWriter, session_id: str | None = None
+    ) -> None:
+        if not self._on_process_direct:
+            err = {"error": {"message": "No agent configured", "type": "server_error"}}
+            writer.write(_json_response(503, "Service Unavailable", err))
+            await writer.drain()
+            return
+
+        cmpl_id = _new_id("chatcmpl")
+        created_at = int(time.time())
+        model_name = payload.get("model", "nanobot")
+        stream = bool(payload.get("stream", False))
+
+        # Extract user text from messages array — last user message wins
+        messages = payload.get("messages", [])
+        user_text = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
+                user_text = content if isinstance(content, str) else str(content)
+                break
+
+        # Session key — clients can pass X-Session-ID header to thread conversations
+        if session_id:
+            session_key = f"responses_api:{session_id}"
+        else:
+            session_key = f"responses_api:{cmpl_id}"
+
+        if stream:
+            await self._completions_stream(writer, cmpl_id, created_at, model_name, session_key, user_text)
+        else:
+            await self._completions_sync(writer, cmpl_id, created_at, model_name, session_key, user_text)
+
+    async def _completions_sync(
+        self,
+        writer: asyncio.StreamWriter,
+        cmpl_id: str,
+        created_at: int,
+        model_name: str,
+        session_key: str,
+        user_text: str,
+    ) -> None:
+        full_text = await self._on_process_direct(
+            user_text,
+            session_key=session_key,
+            channel="responses_api",
+            chat_id=cmpl_id,
+        )
+        body = {
+            "id": cmpl_id,
+            "object": "chat.completion",
+            "created": created_at,
+            "model": model_name,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": full_text or ""},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        }
+        writer.write(_json_response(200, "OK", body))
+        await writer.drain()
+
+    async def _completions_stream(
+        self,
+        writer: asyncio.StreamWriter,
+        cmpl_id: str,
+        created_at: int,
+        model_name: str,
+        session_key: str,
+        user_text: str,
+    ) -> None:
+        writer.write(_sse_header())
+
+        # Opening chunk — role announcement
+        def _chunk(delta: dict, finish_reason: str | None = None) -> bytes:
+            return (
+                "data: "
+                + json.dumps({
+                    "id": cmpl_id,
+                    "object": "chat.completion.chunk",
+                    "created": created_at,
+                    "model": model_name,
+                    "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
+                }, ensure_ascii=False)
+                + "\n\n"
+            ).encode()
+
+        writer.write(_chunk({"role": "assistant", "content": ""}))
+        await writer.drain()
+
+        delta_queue: asyncio.Queue[str | None] = asyncio.Queue()
+
+        async def on_progress(chunk: str, *, tool_hint: bool = False) -> None:
+            if not tool_hint:
+                await delta_queue.put(chunk)
+
+        async def run_agent() -> str:
+            try:
+                return await self._on_process_direct(
+                    user_text,
+                    session_key=session_key,
+                    channel="responses_api",
+                    chat_id=cmpl_id,
+                    on_progress=on_progress,
+                )
+            finally:
+                await delta_queue.put(None)
+
+        agent_task = asyncio.create_task(run_agent())
+
+        while True:
+            chunk = await delta_queue.get()
+            if chunk is None:
+                break
+            writer.write(_chunk({"content": chunk}))
+            await writer.drain()
+
+        await agent_task
+
+        writer.write(_chunk({}, finish_reason="stop"))
         writer.write(b"data: [DONE]\n\n")
         await writer.drain()
