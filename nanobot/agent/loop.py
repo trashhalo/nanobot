@@ -288,6 +288,8 @@ class AgentLoop:
                     thinking_blocks=response.thinking_blocks,
                 )
                 final_content = clean
+                if on_progress:
+                    await on_progress(clean or "")
                 break
 
         if final_content is None and iteration >= self.max_iterations:
