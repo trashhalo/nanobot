@@ -23,12 +23,13 @@ class ChannelManager:
     - Route outbound messages
     """
 
-    def __init__(self, config: Config, bus: MessageBus, on_ipc_batch: Any = None):
+    def __init__(self, config: Config, bus: MessageBus, on_ipc_batch: Any = None, on_process_direct: Any = None):
         self.config = config
         self.bus = bus
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
         self._on_ipc_batch = on_ipc_batch
+        self._on_process_direct = on_process_direct
 
         self._init_channels()
 
@@ -161,6 +162,16 @@ class ChannelManager:
                 on_batch=self._on_ipc_batch,
             )
             logger.info("IPC channel enabled")
+
+        # Responses API channel
+        if self.config.channels.responses_api.enabled:
+            from nanobot.channels.responses_api import ResponsesApiChannel
+            self.channels["responses_api"] = ResponsesApiChannel(
+                self.config.channels.responses_api,
+                self.bus,
+                on_process_direct=self._on_process_direct,
+            )
+            logger.info("Responses API channel enabled")
 
         self._validate_allow_from()
 

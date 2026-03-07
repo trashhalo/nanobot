@@ -376,7 +376,7 @@ def gateway(
         await agent.process_event_batch(topic, events, skill_names=skill_names)
 
     # Create channel manager
-    channels = ChannelManager(config, bus, on_ipc_batch=on_ipc_batch)
+    channels = ChannelManager(config, bus, on_ipc_batch=on_ipc_batch, on_process_direct=agent.process_direct)
 
     def _pick_heartbeat_target() -> tuple[str, str]:
         """Pick a routable channel/chat target for heartbeat-triggered messages."""
