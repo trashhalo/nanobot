@@ -289,7 +289,7 @@ class AgentLoop:
                 )
                 final_content = clean
                 if on_progress:
-                    await on_progress(clean or "")
+                    await on_progress(clean or "", final=True)
                 break
 
         if final_content is None and iteration >= self.max_iterations:
@@ -484,7 +484,10 @@ class AgentLoop:
             extra_context=pre_context or None,
         )
 
-        async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
+        async def _bus_progress(content: str, *, tool_hint: bool = False, final: bool = False) -> None:
+            if final:
+                # Final answer is sent via the normal outbound path; skip to avoid duplicate.
+                return
             meta = dict(msg.metadata or {})
             meta["_progress"] = True
             meta["_tool_hint"] = tool_hint
@@ -492,7 +495,7 @@ class AgentLoop:
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))
 
-        async def _noop_progress(content: str, *, tool_hint: bool = False) -> None:
+        async def _noop_progress(content: str, *, tool_hint: bool = False, final: bool = False) -> None:
             pass
 
         self._current_session_key = key

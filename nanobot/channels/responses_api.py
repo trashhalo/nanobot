@@ -350,7 +350,7 @@ class ResponsesApiChannel(BaseChannel):
         # Stream text deltas via on_progress
         delta_queue: asyncio.Queue[str | None] = asyncio.Queue()
 
-        async def on_progress(chunk: str, *, tool_hint: bool = False) -> None:
+        async def on_progress(chunk: str, *, tool_hint: bool = False, final: bool = False) -> None:
             if not tool_hint:
                 await delta_queue.put(chunk)
 
@@ -522,7 +522,7 @@ class ResponsesApiChannel(BaseChannel):
 
         delta_queue: asyncio.Queue[str | None] = asyncio.Queue()
 
-        async def on_progress(chunk: str, *, tool_hint: bool = False) -> None:
+        async def on_progress(chunk: str, *, tool_hint: bool = False, final: bool = False) -> None:
             if not tool_hint:
                 await delta_queue.put(chunk)
 
